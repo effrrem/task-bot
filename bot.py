@@ -4,16 +4,24 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.client.session.aiohttp import AiohttpSession
+from aiogram.client.telegram import TelegramAPIServer
 from aiogram.enums import ParseMode
 
 import handlers
-from config import BOT_TOKEN
+from config import BOT_TOKEN, TG_PROXY_BASE, TG_PROXY_KEY
 from db import init as init_db
 from scheduler import run_scheduler
 
 logger = logging.getLogger(__name__)
 
-SESSION = AiohttpSession(timeout=60)
+
+def _make_session() -> AiohttpSession:
+    if TG_PROXY_BASE and TG_PROXY_KEY:
+        api = TelegramAPIServer.from_base(f"{TG_PROXY_BASE}/{TG_PROXY_KEY}")
+        logger.info("Using Telegram API proxy: %s", TG_PROXY_BASE)
+    else:
+        api = TelegramAPIServer.from_base("https://api.telegram.org")
+    return AiohttpSession(api=api, timeout=60)
 
 
 async def _start_with_retry(bot: Bot, dp: Dispatcher) -> None:
@@ -43,7 +51,7 @@ async def main() -> None:
 
     bot = Bot(
         token=BOT_TOKEN,
-        session=SESSION,
+        session=_make_session(),
         default=DefaultBotProperties(parse_mode=ParseMode.HTML),
     )
     dp = Dispatcher()

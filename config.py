@@ -11,3 +11,7 @@ if not BOT_TOKEN:
     )
 
 REMIND_MINUTES_BEFORE = int(os.getenv("REMIND_MINUTES_BEFORE", "10"))
+
+# Cloudflare Worker-прокси до api.telegram.org (обход блокировки)
+TG_PROXY_BASE = os.getenv("TG_PROXY_BASE", "").strip()
+TG_PROXY_KEY = os.getenv("TG_PROXY_KEY", "").strip()
