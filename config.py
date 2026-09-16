@@ -15,3 +15,8 @@ REMIND_MINUTES_BEFORE = int(os.getenv("REMIND_MINUTES_BEFORE", "10"))
 # Cloudflare Worker-прокси до api.telegram.org (обход блокировки)
 TG_PROXY_BASE = os.getenv("TG_PROXY_BASE", "").strip()
 TG_PROXY_KEY = os.getenv("TG_PROXY_KEY", "").strip()
+
+# Мини-приложение (календарь)
+WEBAPP_URL = os.getenv("WEBAPP_URL", "").strip()
+WEBAPP_SECRET = os.getenv("WEBAPP_SECRET", "").strip()
+WEBAPP_PORT = int(os.getenv("WEBAPP_PORT", "9000"))

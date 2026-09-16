@@ -60,6 +60,19 @@ async def add_task(
         await db.close()
 
 
+async def get_user_tasks(user_id: int) -> list[dict]:
+    db = await _conn()
+    try:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM tasks WHERE user_id = ? ORDER BY deadline", (user_id,)
+        )
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        await db.close()
+
+
 async def get_task(task_id: int) -> dict | None:
     db = await _conn()
     try:

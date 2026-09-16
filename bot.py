@@ -11,6 +11,7 @@ import handlers
 from config import BOT_TOKEN, TG_PROXY_BASE, TG_PROXY_KEY
 from db import init as init_db
 from scheduler import run_scheduler
+from webapi import run_webapi
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +59,13 @@ async def main() -> None:
     dp.include_router(handlers.router)
 
     scheduler_task = asyncio.create_task(run_scheduler(bot))
+    webapi_task = asyncio.create_task(run_webapi())
 
     try:
         await _start_with_retry(bot, dp)
     finally:
         scheduler_task.cancel()
+        webapi_task.cancel()
         await bot.session.close()
 
 

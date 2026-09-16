@@ -7,10 +7,16 @@ from aiogram import F, Router
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+    WebAppInfo,
+)
 
 import db
-from config import REMIND_MINUTES_BEFORE
+from config import REMIND_MINUTES_BEFORE, WEBAPP_URL
 from timeparser import fmt_dt, parse_deadline, parse_remind, split_task_and_deadline
 
 router = Router()
@@ -23,12 +29,18 @@ class AddTask(StatesGroup):
 
 
 def _main_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="➕ Новая задача", callback_data="add_task")],
-            [InlineKeyboardButton(text="📋 Мои задачи", callback_data="list_tasks")],
-        ]
+    rows: list[list[InlineKeyboardButton]] = []
+    if WEBAPP_URL:
+        rows.append(
+            [InlineKeyboardButton(text="📅 Календарь", web_app=WebAppInfo(url=WEBAPP_URL))]
+        )
+    rows.append(
+        [InlineKeyboardButton(text="➕ Новая задача", callback_data="add_task")]
     )
+    rows.append(
+        [InlineKeyboardButton(text="📋 Мои задачи", callback_data="list_tasks")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _tasks_render(tasks: list[dict]) -> tuple[str, InlineKeyboardMarkup]:
@@ -136,6 +148,13 @@ async def cmd_start(message: Message) -> None:
         "• Показывать и закрывать задачи\n\n"
         "Пример: <code>/add Отчёт до 18:00</code> или <code>/add Купить цветы завтра 12:00</code>",
         reply_markup=_main_menu(),
+    )
+
+
+@router.message(Command("app"))
+async def cmd_app(message: Message) -> None:
+    await message.answer(
+        "📅 Открой календарь с задачами:", reply_markup=_main_menu()
     )
 
 
