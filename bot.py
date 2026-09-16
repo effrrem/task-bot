@@ -3,12 +3,35 @@ import logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
+from aiogram.client.session.aiohttp import AiohttpSession
 from aiogram.enums import ParseMode
 
 import handlers
 from config import BOT_TOKEN
 from db import init as init_db
 from scheduler import run_scheduler
+
+logger = logging.getLogger(__name__)
+
+SESSION = AiohttpSession(timeout=60)
+
+
+async def _start_with_retry(bot: Bot, dp: Dispatcher) -> None:
+    for attempt in range(1, 11):
+        try:
+            logger.info("Attempt %d: connecting to Telegram API...", attempt)
+            await bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Webhook cleared, starting polling...")
+            await dp.start_polling(bot)
+            return
+        except Exception as e:
+            wait = min(attempt * 5, 60)
+            logger.warning(
+                "Attempt %d failed: %s — retrying in %ds", attempt, e, wait
+            )
+            await asyncio.sleep(wait)
+    logger.error("Could not connect after 10 attempts, exiting.")
+    raise SystemExit(1)
 
 
 async def main() -> None:
@@ -18,15 +41,18 @@ async def main() -> None:
     )
     await init_db()
 
-    bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    bot = Bot(
+        token=BOT_TOKEN,
+        session=SESSION,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
     dp = Dispatcher()
     dp.include_router(handlers.router)
 
     scheduler_task = asyncio.create_task(run_scheduler(bot))
 
     try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        await dp.start_polling(bot)
+        await _start_with_retry(bot, dp)
     finally:
         scheduler_task.cancel()
         await bot.session.close()
