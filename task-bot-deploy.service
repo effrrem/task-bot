@@ -1,0 +1,6 @@
+[Unit]
+Description=Auto-deploy task-bot from GitHub
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/autodeploy.sh
