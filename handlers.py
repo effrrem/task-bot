@@ -11,7 +11,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 import db
 from config import REMIND_MINUTES_BEFORE
-from timeparser import fmt_dt, parse_deadline, split_task_and_deadline
+from timeparser import fmt_dt, parse_deadline, parse_remind, split_task_and_deadline
 
 router = Router()
 
@@ -19,6 +19,7 @@ router = Router()
 class AddTask(StatesGroup):
     text = State()
     deadline = State()
+    remind = State()
 
 
 def _main_menu() -> InlineKeyboardMarkup:
@@ -51,21 +52,78 @@ def _tasks_render(tasks: list[dict]) -> tuple[str, InlineKeyboardMarkup]:
     return text, InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def _remind_markup() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🕐 В срок (0)", callback_data="remind:0"),
+                InlineKeyboardButton(text="За 10 мин", callback_data="remind:10"),
+            ],
+            [
+                InlineKeyboardButton(text="За 30 мин", callback_data="remind:30"),
+                InlineKeyboardButton(text="За 1 час", callback_data="remind:60"),
+            ],
+            [
+                InlineKeyboardButton(text="За 2 часа", callback_data="remind:120"),
+                InlineKeyboardButton(text="За 6 часов", callback_data="remind:360"),
+            ],
+        ]
+    )
+
+
+async def _send(
+    target: Message | CallbackQuery,
+    text: str,
+    **kwargs,
+) -> None:
+    if isinstance(target, CallbackQuery):
+        await target.message.answer(text, **kwargs)
+    else:
+        await target.answer(text, **kwargs)
+
+
 async def _save_task(
     target: Message,
     user_id: int,
     task_text: str,
     deadline: datetime,
+    remind_before: int | None = None,
     warn_past: bool = False,
 ) -> None:
+    if remind_before is None:
+        remind_before = REMIND_MINUTES_BEFORE
     past = deadline <= datetime.now()
-    await db.add_task(user_id, task_text, deadline.isoformat())
+    await db.add_task(user_id, task_text, deadline.isoformat(), remind_before)
     frames = [f"✅ Задача добавлена:\n<b>{html.escape(task_text)}</b>"]
     if past and warn_past:
         frames.insert(0, "⚠️ Внимание: срок уже прошёл или наступил!")
     frames.append(f"⏰ Срок: {fmt_dt(deadline)}")
-    frames.append(f"🔔 Напомню за {REMIND_MINUTES_BEFORE} минут до срока.")
-    await target.answer("\n".join(frames), reply_markup=_main_menu())
+    if remind_before <= 0:
+        frames.append("🔔 Напомню в момент срока.")
+    else:
+        hours, mins = divmod(remind_before, 60)
+        label = " ".join(
+            str(x)
+            for x in (
+                f"{hours} ч" if hours else "",
+                f"{mins} мин" if mins else "",
+            )
+            if x
+        )
+        frames.append(f"🔔 Напомню за {label} до срока.")
+    await _send(target, "\n".join(frames), reply_markup=_main_menu())
+
+
+async def _ask_remind(
+    target: Message, state: FSMContext, task_text: str, deadline: datetime
+) -> None:
+    await state.update_data(task_text=task_text, deadline=deadline.isoformat())
+    await state.set_state(AddTask.remind)
+    await target.answer(
+        f"⏰ Дедлайн: <b>{html.escape(task_text)}</b> — {fmt_dt(deadline)}\n\n"
+        "🔔 <b>За сколько напомнить до срока?</b>",
+        reply_markup=_remind_markup(),
+    )
 
 
 @router.message(CommandStart())
@@ -74,7 +132,7 @@ async def cmd_start(message: Message) -> None:
         "👋 Привет! Я твой помощник по задачам.\n\n"
         "Что умею:\n"
         "• <b>Добавлять задачи</b> с дедлайном\n"
-        "• <b>Напоминать</b> за 10 минут до срока\n"
+        "• <b>Напоминать</b> когда и за сколько попросишь\n"
         "• Показывать и закрывать задачи\n\n"
         "Пример: <code>/add Отчёт до 18:00</code> или <code>/add Купить цветы завтра 12:00</code>",
         reply_markup=_main_menu(),
@@ -107,7 +165,7 @@ async def cmd_add(message: Message, state: FSMContext) -> None:
         )
         return
 
-    await _save_task(message, message.from_user.id, task_text, deadline, warn_past=True)
+    await _ask_remind(message, state, task_text, deadline)
 
 
 @router.message(Command("tasks"))
@@ -145,8 +203,45 @@ async def on_deadline(message: Message, state: FSMContext) -> None:
             "или отправь /cancel."
         )
         return
+    await _ask_remind(message, state, data["task_text"], deadline)
+
+
+@router.message(AddTask.remind)
+async def on_remind(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    minutes = parse_remind(message.text)
+    if minutes is None:
+        await message.answer(
+            "😅 Не понял. Напиши число минут (например: <b>15</b>), "
+            "<i>«за 2 часа»</i> или выбери кнопку.",
+            reply_markup=_remind_markup(),
+        )
+        return
     await state.clear()
-    await _save_task(message, message.from_user.id, data["task_text"], deadline, warn_past=True)
+    await _save_task(
+        message,
+        message.from_user.id,
+        data["task_text"],
+        datetime.fromisoformat(data["deadline"]),
+        remind_before=minutes,
+        warn_past=True,
+    )
+
+
+@router.callback_query(F.data.startswith("remind:"))
+async def cb_remind(callback: CallbackQuery, state: FSMContext) -> None:
+    minutes = int(callback.data.split(":", 1)[1])
+    data = await state.get_data()
+    await state.clear()
+    await _save_task(
+        callback,
+        callback.from_user.id,
+        data["task_text"],
+        datetime.fromisoformat(data["deadline"]),
+        remind_before=minutes,
+        warn_past=True,
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data == "add_task")
@@ -212,4 +307,4 @@ async def _send_tasks(target: Message | CallbackQuery, user_id: int) -> None:
         markup = _main_menu()
     else:
         text, markup = _tasks_render(tasks)
-    await target.answer(text, reply_markup=markup)
+    await _send(target, text, reply_markup=markup)

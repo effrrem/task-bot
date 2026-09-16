@@ -4,6 +4,8 @@ from pathlib import Path
 
 import aiosqlite
 
+from config import REMIND_MINUTES_BEFORE
+
 DB_PATH = str(Path(__file__).resolve().parent / "tasks.db")
 
 
@@ -23,21 +25,34 @@ async def init() -> None:
                 deadline TEXT NOT NULL,
                 done INTEGER NOT NULL DEFAULT 0,
                 reminded INTEGER NOT NULL DEFAULT 0,
+                remind_before INTEGER NOT NULL DEFAULT 10,
                 created_at TEXT NOT NULL
             )
             """
         )
+        cur = await db.execute("PRAGMA table_info(tasks)")
+        cols = {row[1] for row in await cur.fetchall()}
+        if "remind_before" not in cols:
+            await db.execute(
+                "ALTER TABLE tasks ADD COLUMN remind_before INTEGER "
+                f"NOT NULL DEFAULT {int(REMIND_MINUTES_BEFORE)}"
+            )
         await db.commit()
     finally:
         await db.close()
 
 
-async def add_task(user_id: int, text: str, deadline: str) -> int:
+async def add_task(
+    user_id: int, text: str, deadline: str, remind_before: int | None = None
+) -> int:
+    if remind_before is None:
+        remind_before = REMIND_MINUTES_BEFORE
     db = await _conn()
     try:
         cur = await db.execute(
-            "INSERT INTO tasks (user_id, text, deadline, created_at) VALUES (?, ?, ?, ?)",
-            (user_id, text, deadline, deadline),
+            "INSERT INTO tasks (user_id, text, deadline, remind_before, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (user_id, text, deadline, int(remind_before), deadline),
         )
         await db.commit()
         return cur.lastrowid

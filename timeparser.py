@@ -120,6 +120,35 @@ def parse_deadline(text: str) -> datetime | None:
     return result
 
 
+def parse_remind(text: str) -> int | None:
+    """Parse "how many minutes before the deadline to remind". Returns minutes."""
+    low = text.lower().replace("напомнить", "").strip()
+
+    for w in ("в срок", "вовремя", "сразу", "ноль", "точно в срок"):
+        if w in low:
+            return 0
+    if "полчас" in low:
+        return 30
+
+    m = re.search(
+        r"(\d+)\s*(?:час\w*|ч\.?)\s*(?:(\d+)\s*(?:мин\w*|м\.?)?)?", low
+    )
+    if m:
+        hours = int(m.group(1))
+        mins = int(m.group(2)) if m.group(2) else 0
+        return hours * 60 + mins
+
+    m = re.search(r"(\d+(?:[.,]\d+)?)\s*(минут\w*|мин\.?)", low)
+    if m:
+        return int(float(m.group(1).replace(",", ".")))
+
+    m = re.search(r"(\d+(?:[.,]\d+)?)", low)
+    if m:
+        return int(float(m.group(1).replace(",", ".")))
+
+    return None
+
+
 def split_task_and_deadline(text: str) -> tuple[str, datetime | None]:
     deadline = parse_deadline(text)
     if deadline is None:
