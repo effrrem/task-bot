@@ -1,45 +1,71 @@
 import asyncio
+import html
 import logging
 from datetime import datetime, timedelta
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, WebAppInfo
 
 import db
-from config import REMIND_MINUTES_BEFORE
+from config import REMIND_MINUTES_BEFORE, WEBAPP_URL
 from timeparser import fmt_dt
 
 logger = logging.getLogger(__name__)
 
 
+def _fmt_duration(mins: int) -> str:
+    mins = max(1, mins)
+    hours, rest = divmod(mins, 60)
+    if hours and rest:
+        return f"{hours} ч {rest} мин"
+    if hours:
+        return f"{hours} ч"
+    return f"{rest} мин"
+
+
+def _reminder_markup() -> InlineKeyboardMarkup | None:
+    if not WEBAPP_URL:
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📅 Открыть календарь",
+                    web_app=WebAppInfo(url=WEBAPP_URL),
+                )
+            ]
+        ]
+    )
+
+
 def _format_reminder(text: str, deadline: datetime, remind_before: int) -> str:
     past = datetime.now() >= deadline
-    header = "🔴 Дедлайн наступил!" if past else "⏰ Напоминание"
-    ahead = ""
-    if not past:
-        mins = max(1, remind_before)
-        hours, rest = divmod(mins, 60)
-        if hours and rest:
-            ahead = f"\n⏳ Осталось ~{hours} ч {rest} мин"
-        elif hours:
-            ahead = f"\n⏳ Осталось ~{hours} ч"
-        else:
-            ahead = f"\n⏳ Осталось ~{rest} мин"
-    return (
-        f"<b>{header}</b>\n\n"
-        f"📝 {text}\n"
-        f"⏰ Срок: {fmt_dt(deadline)}"
-        f"{ahead}"
-    )
+    task_line = f"📌 <b>{html.escape(text)}</b>"
+    deadline_line = f"🗓 Срок: <b>{fmt_dt(deadline)}</b>"
+
+    if past:
+        header = "🚨🚨 <b>ДЕДЛАЙН НАСТУПИЛ!</b> 🚨🚨"
+        body = "\n\n".join([header, task_line, deadline_line])
+    else:
+        header = "🔔⏰ <b>НАПОМИНАНИЕ О ЗАДАЧЕ</b> 🔔⏰"
+        left = f"⏳ Осталось: <b>{_fmt_duration(remind_before)}</b>"
+        body = "\n\n".join([header, task_line, left, deadline_line])
+
+    return body + "\n\n━━━━━━━━━━━━━━━━━"
 
 
 async def _send_reminder(bot: Bot, task: dict) -> None:
     deadline = datetime.fromisoformat(task["deadline"])
-    text = _format_reminder(task["text"], deadline, task.get("remind_before") or REMIND_MINUTES_BEFORE)
+    text = _format_reminder(
+        task["text"], deadline, task.get("remind_before") or REMIND_MINUTES_BEFORE
+    )
 
     try:
         await bot.send_message(
             chat_id=task["user_id"],
             text=text,
+            parse_mode="HTML",
+            reply_markup=_reminder_markup(),
         )
     except Exception:
         logger.exception("Failed to send reminder for task %s", task["id"])

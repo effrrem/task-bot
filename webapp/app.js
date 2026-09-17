@@ -56,9 +56,10 @@
   const toLocalParts = (dt) => ({ y: dt.getFullYear(), m: dt.getMonth(), d: dt.getDate() });
 
   // --- Load tasks ---
+  const API_URL = "https://task-calendar.effrrem-bot.workers.dev/api/tasks";
   async function loadTasks() {
     try {
-      const res = await fetch("/api/tasks", {
+      const res = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ initData }),
@@ -75,22 +76,44 @@
       document.getElementById("appFooter").style.display = tasks.length ? "" : "none";
       return true;
     } catch (err) {
-      showError("Не удалось загрузить задачи. Проверь интернет.");
+      if (!initData) {
+        toast("Календарь нужно открывать из бота по кнопке «📅 Календарь».");
+      } else {
+        toast("Не удалось загрузить задачи. Проверь интернет.");
+      }
       return false;
     }
   }
 
-  function showError(msg) {
-    let el = document.getElementById("errToast");
+  function toast(msg, kind = "err") {
+    let el = document.getElementById("statusToast");
     if (!el) {
       el = document.createElement("div");
-      el.id = "errToast";
-      el.className = "status-error";
+      el.id = "statusToast";
       document.body.appendChild(el);
     }
+    el.className = "status-toast " + (kind === "ok" ? "ok" : "err");
     el.textContent = msg;
     el.style.display = "block";
-    setTimeout(() => { el.style.display = "none"; }, 4000);
+    clearTimeout(el._t);
+    el._t = setTimeout(() => { el.style.display = "none"; }, 3200);
+  }
+
+  async function api(action, payload) {
+    const res = await fetch(API_URL + action, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, ...payload }),
+    });
+    if (!res.ok) throw new Error("status " + res.status);
+    return res.json();
+  }
+
+  async function refresh() {
+    await loadTasks();
+    renderHeader();
+    renderCalendar();
+    renderTasks();
   }
 
   // --- Calendar rendering ---
@@ -245,6 +268,7 @@
       const st = statusOf(t);
       const row = document.createElement("div");
       row.className = "task-row";
+      row.dataset.id = t.id;
       row.style.animationDelay = `${idx * 35}ms`;
 
       const time = document.createElement("div");
@@ -262,10 +286,51 @@
       badge.className = "task-status " + st.cls;
       badge.textContent = st.label;
 
-      row.append(time, main, badge);
+      const actions = document.createElement("div");
+      actions.className = "task-actions";
+
+      const doneBtn = document.createElement("button");
+      doneBtn.className = "act" + (t.done ? " ok" : "");
+      doneBtn.dataset.act = "done";
+      doneBtn.dataset.state = t.done ? "done" : "open";
+      doneBtn.textContent = t.done ? "↺" : "✓";
+      doneBtn.title = t.done ? "Вернуть в работу" : "Выполнено";
+
+      const delBtn = document.createElement("button");
+      delBtn.className = "act del";
+      delBtn.dataset.act = "del";
+      delBtn.textContent = "✕";
+      delBtn.title = "Удалить";
+
+      actions.append(doneBtn, delBtn);
+      row.append(time, main, actions, badge);
       box.appendChild(row);
     });
   }
+
+  $("tasksList").addEventListener("click", async (e) => {
+    const btn = e.target.closest("button");
+    if (!btn) return;
+    const row = btn.closest(".task-row");
+    if (!row) return;
+    const id = parseInt(row.dataset.id, 10);
+    const act = btn.dataset.act;
+    try {
+      if (act === "done") {
+        await api("/update", { id, done: btn.dataset.state !== "done" });
+      } else if (act === "del") {
+        if (typeof window.confirm !== "function" || window.confirm("Удалить задачу?")) {
+          await api("/update", { id, delete: true });
+        } else {
+          return;
+        }
+      }
+      tg?.HapticFeedback?.impactOccurred?.("light");
+      await refresh();
+    } catch (err) {
+      toast("Не удалось обновить задачу.");
+    }
+  });
 
   // --- Header ops ---
   function renderHeader() {
@@ -284,6 +349,65 @@
     renderCalendar();
     renderTasks();
   }
+
+  // --- Task creation modal ---
+  let remindMin = 30;
+  const fText = $("fText");
+  const fDate = $("fDate");
+  const fTime = $("fTime");
+
+  function todayStr() {
+    const t = toLocalParts(new Date());
+    return keyOf(t.y, t.m, t.d);
+  }
+
+  function openModal() {
+    fDate.value = todayStr();
+    fTime.value = "09:00";
+    fText.value = "";
+    $("modalOverlay").classList.add("show");
+    fText.focus();
+  }
+
+  document.querySelectorAll(".chip").forEach((c) => {
+    c.addEventListener("click", () => {
+      document.querySelectorAll(".chip").forEach((x) => x.classList.remove("active"));
+      c.classList.add("active");
+      remindMin = parseInt(c.dataset.min, 10);
+    });
+  });
+
+  $("addBtn").addEventListener("click", openModal);
+  $("fCancel").addEventListener("click", () => $("modalOverlay").classList.remove("show"));
+  $("modalOverlay").addEventListener("click", (e) => {
+    if (e.target === $("modalOverlay")) $("modalOverlay").classList.remove("show");
+  });
+
+  $("fSubmit").addEventListener("click", async () => {
+    const text = fText.value.trim();
+    const date = fDate.value;
+    const time = fTime.value;
+    if (!text) { toast("Напиши, что нужно сделать."); fText.focus(); return; }
+    if (!date || !time) { toast("Укажи дату и время."); return; }
+
+    const btn = $("fSubmit");
+    btn.disabled = true;
+    try {
+      await api("/create", { text, deadline: `${date}T${time}`, remind_before: remindMin });
+      $("modalOverlay").classList.remove("show");
+      toast("Задача добавлена 🎉", "ok");
+      tg?.HapticFeedback?.notificationOccurred?.("success");
+      const [y, m, d] = date.split("-").map(Number);
+      year = y;
+      month = m - 1;
+      selected = { y, m: m - 1, d };
+      await refresh();
+    } catch (err) {
+      toast("Не удалось сохранить задачу.");
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   // --- Init ---
   async function init() {

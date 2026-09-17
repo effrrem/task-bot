@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Мои задачи</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -33,7 +34,35 @@
       <div class="tasks-list" id="tasksList"></div>
     </section>
 
-    <footer class="app-footer" id="appFooter">Новые задачи добавляй прямо в чате бота 📝</footer>
+    <footer class="app-footer" id="appFooter">Нажимай ➕ , чтобы запланировать задачу 📱</footer>
+  </div>
+
+  <button class="fab" id="addBtn" aria-label="Новая задача">
+    <svg viewBox="0 0 24 24" width="26" height="26"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+  </button>
+
+  <div class="overlay" id="modalOverlay">
+    <div class="modal" id="taskModal">
+      <div class="modal-title">➕ Новая задача</div>
+      <input class="inp" id="fText" type="text" maxlength="300" placeholder="Что нужно сделать?" autocomplete="off" />
+      <div class="frow">
+        <input class="inp" id="fDate" type="date" />
+        <input class="inp" id="fTime" type="time" value="09:00" />
+      </div>
+      <div class="fcap">🔔 Напомнить</div>
+      <div class="chips">
+        <button class="chip" data-min="0">В срок</button>
+        <button class="chip" data-min="10">За 10 мин</button>
+        <button class="chip active" data-min="30">За 30 мин</button>
+        <button class="chip" data-min="60">За 1 ч</button>
+        <button class="chip" data-min="120">За 2 ч</button>
+        <button class="chip" data-min="360">За 6 ч</button>
+      </div>
+      <div class="modal-btns">
+        <button class="btn ghost" id="fCancel">Отмена</button>
+        <button class="btn primary" id="fSubmit">Создать</button>
+      </div>
+    </div>
   </div>
 
   <script src="/app.js"></script>

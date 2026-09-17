@@ -129,6 +129,32 @@ async def mark_done(task_id: int) -> None:
         await db.close()
 
 
+async def update_task_done(task_id: int, user_id: int, done: bool) -> bool:
+    db = await _conn()
+    try:
+        cur = await db.execute(
+            "UPDATE tasks SET done = ? WHERE id = ? AND user_id = ?",
+            (int(done), task_id, user_id),
+        )
+        await db.commit()
+        return (cur.rowcount or 0) > 0
+    finally:
+        await db.close()
+
+
+async def delete_task_by_user(task_id: int, user_id: int) -> bool:
+    db = await _conn()
+    try:
+        cur = await db.execute(
+            "DELETE FROM tasks WHERE id = ? AND user_id = ?",
+            (task_id, user_id),
+        )
+        await db.commit()
+        return (cur.rowcount or 0) > 0
+    finally:
+        await db.close()
+
+
 async def delete_task(task_id: int) -> None:
     db = await _conn()
     try:
